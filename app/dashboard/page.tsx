@@ -1,12 +1,16 @@
+
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthGuard } from "@/hooks/useAuthGuard";
 import { clearTokens } from "@/lib/auth";
+import { apiClient } from "@/lib/api";
 import { CONFIG } from "@/lib/config";
+
 import { Button } from "@/components/ui/button";
-import { Sun, Moon } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 import {
   Card,
@@ -15,259 +19,544 @@ import {
   CardContent,
 } from "@/components/ui/card";
 
-const statistics = [
-  { title: "Total Users", value: "1,248" },
-  { title: "Online Users", value: "1,200" },
-  { title: "Offline Users", value: "48" },
-  { title: "Active Users", value: "1,115" },
-];
+import {
+  LogOut,
+  Plus,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  X,
+  Building2,
+} from "lucide-react";
 
-const orders = [
-  {
-    id: "#USR-1001",
-    customer: "Juan Gomez",
-    product: "Cellphone",
-    status: "Online",
-    date: "Jgomez@gmail.com",
-  },
-  {
-    id: "#USR-1002",
-    customer: "Maria Magdangal",
-    product: "Tablet",
-    status: "Offline",
-    date: "Mmagdangal@gmail.com",
-  },
-  {
-    id: "#USR-1003",
-    customer: "Carlos Logo",
-    product: "Cellphone",
-    status: "Online",
-    date: "Clogo@gmail.com",
-  },
-];
+// SUPPLIER DATABASE STRUCTURE
+interface Supplier {
+  id: number;
+  type_name: string;
+  type_address: string;
+}
+
+interface SupplierForm {
+  type_name: string;
+  type_address: string;
+}
 
 export default function DashboardPage() {
+  useAuthGuard({ requireAuth: true });
+
   const router = useRouter();
-  const { isChecking } = useAuthGuard({ requireAuth: true });
+  const endpoint = CONFIG.ENDPOINTS.SUPPLIERS;
 
-  const [darkMode, setDarkMode] = useState(false);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [selectedSupplier, setSelectedSupplier] =
+    useState<Supplier | null>(null);
 
-  if (isChecking) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <p className="text-sm text-muted-foreground">
-          Verifying session...
-        </p>
-      </div>
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const [editingId, setEditingId] = useState<number | null>(null);
+
+  const [form, setForm] = useState<SupplierForm>({
+    type_name: "",
+    type_address: "",
+  });
+
+  // GET ALL SUPPLIERS
+  const fetchSuppliers = async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const data = await apiClient<Supplier[]>(endpoint, {
+        method: "GET",
+        requiresAuth: true,
+      });
+
+      setSuppliers(data);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load suppliers."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSuppliers();
+  }, []);
+
+  // RESET FORM
+  const resetForm = () => {
+    setForm({
+      type_name: "",
+      type_address: "",
+    });
+
+    setEditingId(null);
+  };
+
+  // CREATE SUPPLIER
+  const handleCreate = async (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!form.type_name.trim() || !form.type_address.trim()) {
+      setError("Please enter the supplier name and address.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError("");
+      setSuccess("");
+
+      await apiClient<Supplier>(endpoint, {
+        method: "POST",
+        requiresAuth: true,
+        body: JSON.stringify({
+          type_name: form.type_name.trim(),
+          type_address: form.type_address.trim(),
+        }),
+      });
+
+      setSuccess("Supplier added successfully!");
+      resetForm();
+
+      await fetchSuppliers();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to add supplier."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // SELECT SUPPLIER FOR EDITING
+  const handleEdit = (supplier: Supplier) => {
+    setEditingId(supplier.id);
+
+    setForm({
+      type_name: supplier.type_name,
+      type_address: supplier.type_address,
+    });
+
+    setError("");
+    setSuccess("");
+  };
+
+  // UPDATE SUPPLIER
+  const handleUpdate = async (e: FormEvent) => {
+    e.preventDefault();
+
+    if (editingId === null) return;
+
+    if (!form.type_name.trim() || !form.type_address.trim()) {
+      setError("Please enter the supplier name and address.");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      setError("");
+      setSuccess("");
+
+      await apiClient<Supplier>(
+        `${endpoint}/${editingId}`,
+        {
+          method: "PUT",
+          requiresAuth: true,
+          body: JSON.stringify({
+            type_name: form.type_name.trim(),
+            type_address: form.type_address.trim(),
+          }),
+        }
+      );
+
+      setSuccess("Supplier updated successfully!");
+      resetForm();
+
+      await fetchSuppliers();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to update supplier."
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // DELETE SUPPLIER
+  const handleDelete = async (id: number) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this supplier?"
     );
-  }
 
+    if (!confirmed) return;
+
+    try {
+      setError("");
+      setSuccess("");
+
+      await apiClient(`${endpoint}/${id}`, {
+        method: "DELETE",
+        requiresAuth: true,
+      });
+
+      setSuccess("Supplier deleted successfully!");
+
+      if (selectedSupplier?.id === id) {
+        setSelectedSupplier(null);
+      }
+
+      if (editingId === id) {
+        resetForm();
+      }
+
+      await fetchSuppliers();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to delete supplier."
+      );
+    }
+  };
+
+  // VIEW SUPPLIER
+  const handleView = async (id: number) => {
+    try {
+      setError("");
+
+      const data = await apiClient<Supplier>(
+        `${endpoint}/${id}`,
+        {
+          method: "GET",
+          requiresAuth: true,
+        }
+      );
+
+      setSelectedSupplier(data);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Failed to load supplier."
+      );
+    }
+  };
+
+  // LOGOUT
   const handleLogout = () => {
     clearTokens();
     router.push(CONFIG.ROUTES.LOGIN);
   };
 
   return (
-    <main
-      className={`min-h-screen p-6 md:p-10 transition-colors duration-300 ${
-        darkMode
-          ? "bg-gray-950 text-white"
-          : "bg-slate-50 text-gray-900"
-      }`}
-    >
-      <div className="max-w-6xl mx-auto space-y-8">
+    <div className="min-h-screen bg-slate-50 dark:bg-gray-950">
 
-        {/* Header */}
-        <header className="flex flex-wrap justify-between items-center border-b border-gray-300 dark:border-gray-700 pb-5">
-          <div>
-            <h1 className="text-3xl font-bold">
-              Dashboard
+      {/* NAVBAR */}
+      <nav className="border-b bg-white dark:bg-gray-900">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+
+          <div className="flex items-center gap-2">
+            <Building2 className="h-6 w-6 text-blue-600" />
+
+            <h1 className="text-xl font-bold">
+              Suppliers Dashboard
             </h1>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Hello!
-            </p>
           </div>
 
-          <div className="flex gap-2">
-            <Button
-  variant="outline"
-  onClick={() => setDarkMode(!darkMode)}
-  className="inline-flex items-center gap-2 bg-white text-gray-800 border-gray-300 hover:bg-gray-100 dark:bg-gray-800 dark:text-white dark:border-gray-600 dark:hover:bg-gray-700"
->
-  {darkMode ? (
-    <>
-      <Sun size={18} />
-      Light Mode
-    </>
-  ) : (
-    <>
-      <Moon size={18} />
-      Dark Mode
-    </>
-  )}
-</Button>
+          <Button variant="outline" onClick={handleLogout}>
+            <LogOut className="h-4 w-4 mr-2" />
+            Logout
+          </Button>
 
-            <Button
-              variant="destructive"
-              onClick={handleLogout}
-            >
-              Logout
-            </Button>
+        </div>
+      </nav>
+
+      {/* MAIN CONTENT */}
+      <main className="max-w-6xl mx-auto p-6 space-y-6">
+
+        {/* PAGE TITLE */}
+        <div>
+          <h2 className="text-2xl font-bold">
+            Supplier Management
+          </h2>
+
+          <p className="text-sm text-slate-500">
+            Add and manage your suppliers.
+          </p>
+        </div>
+
+        {/* ERROR MESSAGE */}
+        {error && (
+          <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
+            {error}
           </div>
-        </header>
+        )}
 
-        <Card className={`transition-colors duration-300 ${
-    darkMode
-      ? "bg-gray-900 border-gray-700 text-white"
-      : "bg-white border-gray-200 text-gray-900"
-  }`}
->
+        {/* SUCCESS MESSAGE */}
+        {success && (
+          <div className="p-3 rounded-lg border border-green-200 bg-green-50 text-green-700 text-sm">
+            {success}
+          </div>
+        )}
+
+        {/* ADD / UPDATE SUPPLIER FORM */}
+        <Card>
           <CardHeader>
             <CardTitle>
-              Maligayang pag babalik Master!
+              {editingId !== null
+                ? "Update Supplier"
+                : "Add New Supplier"}
             </CardTitle>
+
+            <p className="text-sm text-slate-500">
+              Enter the supplier name and address.
+            </p>
           </CardHeader>
 
           <CardContent>
-            <p className="text-muted-foreground">
-              You are authenticated. Your active JNT session is stored in LocalStorage.
-            </p>
+            <form
+              onSubmit={editingId !== null ? handleUpdate : handleCreate}
+              className="space-y-5"
+            >
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                {/* SUPPLIER NAME */}
+                <div className="space-y-2">
+                  <Label htmlFor="type_name">
+                    Supplier Name
+                  </Label>
+
+                  <Input
+                    id="type_name"
+                    placeholder="Enter supplier name"
+                    value={form.type_name}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        type_name: e.target.value,
+                      })
+                    }
+                    required
+                    maxLength={100}
+                  />
+                </div>
+
+                {/* SUPPLIER ADDRESS */}
+                <div className="space-y-2">
+                  <Label htmlFor="type_address">
+                    Supplier Address
+                  </Label>
+
+                  <Input
+                    id="type_address"
+                    placeholder="Enter supplier address"
+                    value={form.type_address}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        type_address: e.target.value,
+                      })
+                    }
+                    required
+                    maxLength={100}
+                  />
+                </div>
+
+              </div>
+
+              {/* BUTTONS */}
+              <div className="flex justify-end gap-2">
+
+                {editingId !== null && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={resetForm}
+                  >
+                    <X className="h-4 w-4 mr-2" />
+                    Cancel
+                  </Button>
+                )}
+
+                <Button type="submit" disabled={submitting}>
+                  {editingId !== null ? (
+                    <>
+                      <Pencil className="h-4 w-4 mr-2" />
+                      {submitting ? "Updating..." : "Update Supplier"}
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="h-4 w-4 mr-2" />
+                      {submitting ? "Adding..." : "Add Supplier"}
+                    </>
+                  )}
+                </Button>
+
+              </div>
+
+            </form>
           </CardContent>
         </Card>
 
-        {/* Statistics */}
+        {/* SUPPLIER DETAILS */}
+        {selectedSupplier && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>
+                Supplier Details
+              </CardTitle>
 
-{/* Statistics */}
-<section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-  {statistics.map((item) => (
-    <div
-      key={item.title}
-      className={`rounded-xl border p-6 shadow-sm transition-colors flex flex-col items-center justify-center text-center ${
-        darkMode
-          ? "bg-gray-900 border-gray-700"
-          : "bg-white border-gray-200"
-      }`}
-    >
-      <p className="text-sm text-gray-500 dark:text-gray-400">
-        {item.title}
-      </p>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setSelectedSupplier(null)}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </CardHeader>
 
-      <h2 className="text-3xl font-bold mt-2">
-        {Number(item.value.replace(",", "")).toLocaleString()}
-      </h2>
+            <CardContent className="space-y-2 text-sm">
+              <p>
+                <strong>ID:</strong> {selectedSupplier.id}
+              </p>
 
-      {/* Active Users Progress Bar */}
-      {item.title === "Active Users" && (
-        <div className="mt-4 w-full">
-          <div
-            className={`h-2 w-full rounded-full overflow-hidden ${
-              darkMode ? "bg-gray-700" : "bg-gray-200"
-            }`}
-          >
-            <div
-              className="h-full rounded-full bg-blue-600 transition-all duration-500"
-              style={{
-                width: `${
-                  (Number(item.value.replace(",", "")) / 1248) * 100
-                }%`,
-              }}
-            />
-          </div>
+              <p>
+                <strong>Supplier Name:</strong>{" "}
+                {selectedSupplier.type_name}
+              </p>
 
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
-            {(
-              (Number(item.value.replace(",", "")) / 1248) * 100
-            ).toFixed(1)}% of total users
-          </p>
-        </div>
-      )}
-    </div>
-  ))}
-</section>
+              <p>
+                <strong>Supplier Address:</strong>{" "}
+                {selectedSupplier.type_address}
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
-        {/* Recent Orders */}
-        <section
-          className={`rounded-xl border shadow-sm p-5 ${
-            darkMode
-              ? "bg-gray-900 border-gray-700"
-              : "bg-white border-gray-200"
-          }`}
-        >
-          <div className="flex justify-between items-center mb-5">
-            <h2 className="text-xl font-bold">
-              Users Tracker
-            </h2>
+        {/* SUPPLIER LIST */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
 
-            <button className="text-sm text-blue-600 hover:underline">
-              View All →
-            </button>
-          </div>
+            <div>
+              <CardTitle>
+                Your Suppliers ({suppliers.length})
+              </CardTitle>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead>
-                <tr
-                  className={
-                    darkMode
-                      ? "bg-gray-800 text-gray-300"
-                      : "bg-slate-100 text-gray-700"
-                  }
-                >
-                  <th className="p-3">Users ID</th>
-                  <th className="p-3">Name</th>
-                  <th className="p-3">Device</th>
-                  <th className="p-3">Status</th>
-                  <th className="p-3">Gmail</th>
-                </tr>
-              </thead>
+              <p className="text-sm text-slate-500 mt-1">
+                {suppliers.length} supplier(s) recorded.
+              </p>
+            </div>
 
-              <tbody>
-                {orders.map((user) => (
-                  <tr
-                    key={user.id}
-                    className={`border-b ${
-                      darkMode
-                        ? "border-gray-700"
-                        : "border-gray-100"
-                    }`}
-                  >
-                    <td className="p-3 font-medium">
-                      {user.id}
-                    </td>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchSuppliers}
+              disabled={loading}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
 
-                    <td className="p-3">
-                      {user.customer}
-                    </td>
+          </CardHeader>
 
-                    <td className="p-3">
-                      {user.product}
-                    </td>
+          <CardContent>
 
-                    <td className="p-3">
-                      <span
-                        className={`inline-flex items-center gap-2 px-3 py-1 rounded-md text-xs font-medium ${
-                          user.status === "Online"
-                            ? "bg-green-500 text-black dark:bg-green-500 dark:text-white"
-                            : user.status === "Offline"
-                            ? "bg-red-500 text-black dark:bg-red-500 dark:text-white"
-                            : "bg-red-500 text-black dark:bg-red-500 dark:text-white"
-                        }`}
+            {loading ? (
+              <p className="text-center py-8 text-slate-500">
+                Loading suppliers...
+              </p>
+            ) : suppliers.length === 0 ? (
+              <p className="text-center py-8 text-slate-500">
+                No suppliers found. Add your first supplier above.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+
+                  <thead>
+                    <tr className="border-b text-left text-slate-500">
+                      <th className="p-3">ID</th>
+                      <th className="p-3">Supplier Name</th>
+                      <th className="p-3">Supplier Address</th>
+                      <th className="p-3">Actions</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {suppliers.map((supplier) => (
+                      <tr
+                        key={supplier.id}
+                        className="border-b hover:bg-slate-50 dark:hover:bg-gray-900"
                       >
-                        {user.status}
-                      </span>
-                    </td>
 
-                    <td className="p-3 whitespace-nowrap">
-                      {user.date}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                        <td className="p-3">
+                          {supplier.id}
+                        </td>
 
-      </div>
-    </main>
+                        <td className="p-3 font-medium">
+                          {supplier.type_name}
+                        </td>
+
+                        <td className="p-3">
+                          {supplier.type_address}
+                        </td>
+
+                        <td className="p-3">
+                          <div className="flex gap-2">
+
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleView(supplier.id)}
+                            >
+                              View
+                            </Button>
+
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEdit(supplier)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDelete(supplier.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+
+                          </div>
+                        </td>
+
+                      </tr>
+                    ))}
+                  </tbody>
+
+                </table>
+              </div>
+            )}
+
+          </CardContent>
+        </Card>
+
+      </main>
+    </div>
   );
 }

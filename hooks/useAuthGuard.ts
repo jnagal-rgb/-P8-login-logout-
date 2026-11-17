@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,7 +10,9 @@ interface AuthGuardOptions {
   requireAuth?: boolean;
 }
 
-export function useAuthGuard({ requireAuth = true }: AuthGuardOptions = {}) {
+export function useAuthGuard({
+  requireAuth = true,
+}: AuthGuardOptions = {}) {
   const router = useRouter();
   const [isChecking, setIsChecking] = useState(true);
 
@@ -18,11 +21,15 @@ export function useAuthGuard({ requireAuth = true }: AuthGuardOptions = {}) {
 
     if (requireAuth && !userIsAuth) {
       router.replace(CONFIG.ROUTES.LOGIN);
-    } else if (!requireAuth && userIsAuth) {
-      router.replace(CONFIG.ROUTES.DASHBOARD);
-    } else {
-      setIsChecking(false);
+      return;
     }
+
+    if (!requireAuth && userIsAuth) {
+      router.replace(CONFIG.ROUTES.DASHBOARD);
+      return;
+    }
+
+    setIsChecking(false);
   }, [requireAuth, router]);
 
   return { isChecking };
